@@ -5,6 +5,8 @@ use esp_backtrace as _;
 use esp_println::println;
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay};
 
+use hx711;
+
 use esp_wifi::{initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng};
@@ -29,13 +31,15 @@ fn main() -> ! {
     )
     .timer0;
     let _init = initialize(
-        EspWifiInitFor::Wifi,
+        EspWifiInitFor::Ble,
         timer,
         Rng::new(peripherals.RNG),
         system.radio_clock_control,
         &clocks,
     )
     .unwrap();
+
+
     loop {
         println!("Loop...");
         delay.delay_ms(500u32);

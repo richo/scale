@@ -3,21 +3,6 @@
 version = 3
 
 [[package]]
-name = "adsf"
-version = "0.1.0"
-dependencies = [
- "embedded-io 0.4.0",
- "embedded-svc",
- "esp-backtrace",
- "esp-println",
- "esp-wifi",
- "esp32-hal",
- "heapless",
- "log",
- "smoltcp",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -351,8 +336,6 @@ dependencies = [
  "atomic-polyfill 1.0.3",
  "critical-section",
  "embedded-io 0.4.0",
- "embedded-svc",
- "enumset",
  "esp-wifi-sys",
  "esp32-hal",
  "esp32c2-hal",
@@ -551,6 +534,16 @@ name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
+
+[[package]]
+name = "hx711"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b6803c26a04bdfa8daa575c2411f55115f3941a38d7ff8748191c7dbd39ffa0"
+dependencies = [
+ "embedded-hal",
+ "nb 1.1.0",
+]
 
 [[package]]
 name = "ident_case"
@@ -799,6 +792,22 @@ name = "rustversion"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ffc183a10b4478d04cbbbfc96d0873219d962dd5accaff2ffbd4ceb7df837f4"
+
+[[package]]
+name = "scale"
+version = "0.1.0"
+dependencies = [
+ "embedded-io 0.4.0",
+ "embedded-svc",
+ "esp-backtrace",
+ "esp-println",
+ "esp-wifi",
+ "esp32-hal",
+ "heapless",
+ "hx711",
+ "log",
+ "smoltcp",
+]
 
 [[package]]
 name = "scopeguard"
