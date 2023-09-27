@@ -15,47 +15,38 @@ use esp_wifi::{initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng};
 
-struct Scale<D, IN, OUT>
-where
-    D: DelayUs<u32>,
-    IN: InputPin,
-    IN::Error: core::fmt::Debug,
-    OUT: OutputPin,
-    OUT::Error: core::fmt::Debug,
-{
-    hx: hx711::Hx711<D, IN, OUT>,
-    tare: i32,
-}
-
-impl<D, IN, OUT> Scale<D, IN, OUT>
-where
-    D: DelayUs<u32>,
-    IN: InputPin,
-    IN::Error: core::fmt::Debug,
-    OUT: OutputPin,
-    OUT::Error: core::fmt::Debug,
-{
-    fn new(hx: hx711::Hx711<D, IN, OUT>) -> Self {
-        Self {
-            hx,
-            tare: 0,
-        }
-    }
-
-    fn value(&mut self) -> i32 {
-        block!(self.hx.retrieve()).unwrap() - self.tare
-    }
-
-    fn tare(&mut self) {
-        let tare;
+trait Scale {
+    fn tare(&mut self) -> i32 {
         const N: i32 = 8;
         let mut val = 0;
         for _ in 0..N {
-            val += block!(self.hx.retrieve()).unwrap(); // or unwrap, see features below
+            val += self.value();
         }
-        tare = val / N;
-        log::info!("Tared at {}", self.tare);
-        self.tare = tare;
+        val / N
+    }
+
+    fn value(&mut self) -> i32;
+
+    fn corrected_value(&mut self, tare: i32) -> i32 {
+        self.value() - tare
+    }
+}
+
+impl<D, IN, OUT> Scale for hx711::Hx711<D, IN, OUT>
+where
+    D: DelayUs<u32>,
+    IN: InputPin,
+    IN::Error: core::fmt::Debug,
+    OUT: OutputPin,
+    OUT::Error: core::fmt::Debug,
+{
+
+    fn value(&mut self) -> i32 {
+        let mut val = -1;
+        while val == -1 {
+            val = block!(self.retrieve()).unwrap();
+        }
+        val
     }
 }
 
@@ -90,18 +81,22 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let dout = io.pins.gpio16.into_floating_input();
-    let pd_sck = io.pins.gpio4.into_push_pull_output();
-    let mut left = Scale::new(hx711::Hx711::new(delay, dout, pd_sck).unwrap());
-    left.tare();
+    let mut left = {
+        let dout = io.pins.gpio16.into_floating_input();
+        let pd_sck = io.pins.gpio4.into_push_pull_output();
+        hx711::Hx711::new(delay, dout, pd_sck).unwrap()
+    };
+    let left_tare = left.tare();
 
-    let dout = io.pins.gpio16.into_floating_input();
-    let pd_sck = io.pins.gpio4.into_push_pull_output();
-    let mut right = Scale::new(hx711::Hx711::new(delay, dout, pd_sck).unwrap());
-    right.tare();
+    let mut right = {
+        let dout = io.pins.gpio16.into_floating_input();
+        let pd_sck = io.pins.gpio4.into_push_pull_output();
+        hx711::Hx711::new(delay, dout, pd_sck).unwrap()
+    }
+    let right_tare = left.tare();
 
     loop {
-        let val = left.value();
+        let val = left.corrected_value(left_tare);
         log::info!("val: {}\t", val);
 
     }
