@@ -87,6 +87,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
+name = "bleps"
+version = "0.1.0"
+source = "git+https://github.com/bjoernQ/bleps?rev=b82f1e7009bef7e32f0918be5b186188aa5e7109#b82f1e7009bef7e32f0918be5b186188aa5e7109"
+dependencies = [
+ "embedded-io 0.4.0",
+ "log",
+]
+
+[[package]]
+name = "bleps-macros"
+version = "0.1.0"
+source = "git+https://github.com/bjoernQ/bleps?rev=b82f1e7009bef7e32f0918be5b186188aa5e7109#b82f1e7009bef7e32f0918be5b186188aa5e7109"
+dependencies = [
+ "litrs",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "uuid",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -331,7 +352,7 @@ dependencies = [
 [[package]]
 name = "esp-wifi"
 version = "0.1.0"
-source = "git+https://github.com/esp-rs/esp-wifi/?rev=fbb8417#fbb8417fc450ec0701067b36629770c11338231c"
+source = "git+https://github.com/esp-rs/esp-wifi/?rev=16afb0f#16afb0fe3c46e2ccf698bf52bfec5230ffad1cad"
 dependencies = [
  "atomic-polyfill 1.0.3",
  "critical-section",
@@ -345,6 +366,7 @@ dependencies = [
  "esp32s3-hal",
  "fugit",
  "heapless",
+ "libm",
  "linked_list_allocator",
  "log",
  "num-derive",
@@ -356,7 +378,7 @@ dependencies = [
 [[package]]
 name = "esp-wifi-sys"
 version = "0.1.0"
-source = "git+https://github.com/esp-rs/esp-wifi/?rev=fbb8417#fbb8417fc450ec0701067b36629770c11338231c"
+source = "git+https://github.com/esp-rs/esp-wifi/?rev=16afb0f#16afb0fe3c46e2ccf698bf52bfec5230ffad1cad"
 dependencies = [
  "anyhow",
 ]
@@ -562,10 +584,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
+
+[[package]]
 name = "linked_list_allocator"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9afa463f5405ee81cdb9cc2baf37e08ec7e4c8209442b5d72c04cfb2cd6e6286"
+
+[[package]]
+name = "litrs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9275e0933cf8bb20f008924c0cb07a0692fe54d8064996520bf998de9eb79aa"
+dependencies = [
+ "proc-macro2",
+]
 
 [[package]]
 name = "lock_api"
@@ -797,6 +834,8 @@ checksum = "7ffc183a10b4478d04cbbbfc96d0873219d962dd5accaff2ffbd4ceb7df837f4"
 name = "scale"
 version = "0.1.0"
 dependencies = [
+ "bleps",
+ "bleps-macros",
  "embedded-hal",
  "embedded-io 0.4.0",
  "embedded-svc",
@@ -809,6 +848,7 @@ dependencies = [
  "log",
  "nb 1.1.0",
  "smoltcp",
+ "uuid",
 ]
 
 [[package]]
@@ -991,6 +1031,12 @@ name = "usb-device"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f6cc3adc849b5292b4075fc0d5fdcf2f24866e88e336dd27a8943090a520508"
+
+[[package]]
+name = "uuid"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79daa5ed5740825c40b389c5e50312b9c86df53fccd33f281df655642b43869d"
 
 [[package]]
 name = "vcell"
