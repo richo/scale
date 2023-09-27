@@ -89,15 +89,23 @@ fn main() -> ! {
     let left_tare = left.tare();
 
     let mut right = {
-        let dout = io.pins.gpio16.into_floating_input();
-        let pd_sck = io.pins.gpio4.into_push_pull_output();
+        let dout = io.pins.gpio18.into_floating_input();
+        let pd_sck = io.pins.gpio5.into_push_pull_output();
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
-    }
-    let right_tare = left.tare();
+    };
+    let right_tare = right.tare();
+
+    let right_scale = 273577.0 / 807.5 / 2.0;
+    let left_scale = 319663.0 / 807.5 / 2.0;
+
+    let factor = (273577.0 + 319663.0) / 807.5;
 
     loop {
-        let val = left.corrected_value(left_tare);
-        log::info!("val: {}\t", val);
+        let l = left.corrected_value(left_tare);
+        let r = right.corrected_value(right_tare);
+        // let weight = (l as f32 / left_scale) + (r as f32 / right_scale);
+        let weight = (l + r) as f32 / factor;
+        log::info!("val: {weight}\t{}\t{}", l, r);
 
     }
 }
