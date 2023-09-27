@@ -16,3 +16,5 @@ embedded-svc = { version = "0.25.0", default-features = false, features = [] }
 embedded-io = "0.4.0"
 heapless = { version = "0.7.14", default-features = false }
 hx711 = "0.6.0"
+nb = "1.1.0"
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
