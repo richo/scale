@@ -22,11 +22,12 @@ use embedded_hal::digital::v2::{InputPin, OutputPin};
 use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng};
-use core::sync::atomic::{AtomicI32, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
 // use core::thread;
 use uuid::Uuid;
 
 static weight: AtomicI32 = AtomicI32::new(0);
+static should_tare: AtomicBool = AtomicBool::new(false);
 
 
 trait Scale {
@@ -103,14 +104,12 @@ fn main() -> ! {
         let pd_sck = io.pins.gpio4.into_push_pull_output();
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
     };
-    let left_tare = left.tare();
 
     let mut right = {
         let dout = io.pins.gpio18.into_floating_input();
         let pd_sck = io.pins.gpio5.into_push_pull_output();
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
     };
-    let right_tare = right.tare();
 
     let right_scale = 273577.0 / 807.5 / 2.0;
     let left_scale = 319663.0 / 807.5 / 2.0;
@@ -138,20 +137,23 @@ fn main() -> ! {
                 create_advertising_data(&[
                     AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
                     AdStructure::ServiceUuids16(&[Uuid::Uuid16(0x1809)]),
-                    AdStructure::CompleteLocalName("butts_scale"),
+                    AdStructure::CompleteLocalName("Decent Scale 2"),
                 ]).unwrap()
             )
         );
         println!("{:?}", ble.cmd_set_le_advertise_enable(true));
 
         println!("started advertising");
-
         let mut rf = |_offset: usize, data: &mut [u8]| {
             data[..20].copy_from_slice(&b"Hello Bare-Metal BLE"[..]);
             17
         };
         let mut wf = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: {} {:?}", offset, data);
+            println!("RECEIVED: Offset {}, data {:?}", offset, data);
+            if data == &[0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] || true {
+                println!("Triggering tare");
+                should_tare.store(true, Ordering::Relaxed);
+            }
         };
 
         let mut wf2 = |offset: usize, data: &[u8]| {
@@ -162,15 +164,20 @@ fn main() -> ! {
             data[..5].copy_from_slice(&b"Hola!"[..]);
             5
         };
+
         let mut wf3 = |offset: usize, data: &[u8]| {
             println!("RECEIVED: Offset {}, data {:?}", offset, data);
+            if data == &[0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] || true {
+                println!("Triggering tare");
+                should_tare.store(true, Ordering::Relaxed);
+            }
         };
 
         gatt!([service {
-            uuid: "937312e0-2354-11eb-9f10-fbc30a62cf38",
+            uuid: "FFF0",
             characteristics: [
                 characteristic {
-                    uuid: "937312e0-2354-11eb-9f10-fbc30a62cf38",
+                    uuid: "000036F5-0000-1000-8000-00805F9B34FB",
                     read: rf,
                     write: wf,
                 },
@@ -190,13 +197,24 @@ fn main() -> ! {
 
         let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes);
 
+        let mut left_tare = left.tare();
+        let mut right_tare = right.tare();
+
         loop {
             let mut notification = None;
+
+            if should_tare.load(Ordering::Relaxed) {
+                println!("Actually taring");
+                left_tare = left.tare();
+                right_tare = right.tare();
+                should_tare.store(false, Ordering::Relaxed);
+            }
 
             let l = left.corrected_value(left_tare);
             let r = right.corrected_value(right_tare);
             // TODO(richo) figure out how to do this at 10hz
             let w = (l as f32 / left_scale) + (r as f32 / right_scale);
+            let w = (l + r) as f32 / factor;
 
             // int repr of grams *10
             let i = (w * 10.0) as i16;
@@ -219,6 +237,7 @@ fn main() -> ! {
 
                 // if notifications enabled
                 if cccd[0] == 1 {
+                    // println!("{i} {:x?}", &payload[..]);
                     notification = Some(NotificationData::new(
                             weight_handle,
                             &payload[..],
