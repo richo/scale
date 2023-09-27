@@ -18,3 +18,12 @@ heapless = { version = "0.7.14", default-features = false }
 hx711 = "0.6.0"
 nb = "1.1.0"
 embedded-hal = { version = "0.2.7", features = ["unproven"] }
+
+[profile.dev.package.esp-wifi]
+opt-level = 3
+
+[profile.dev]
+lto = "off"
+[profile.release]
+lto = "off"
+

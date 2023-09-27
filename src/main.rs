@@ -14,6 +14,10 @@ use embedded_hal::digital::v2::{InputPin, OutputPin};
 use esp_wifi::{initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng};
+use core::sync::atomic::{AtomicI32, Ordering};
+
+static weight: AtomicI32 = AtomicI32::new(0);
+
 
 trait Scale {
     fn tare(&mut self) -> i32 {
@@ -103,9 +107,9 @@ fn main() -> ! {
     loop {
         let l = left.corrected_value(left_tare);
         let r = right.corrected_value(right_tare);
-        // let weight = (l as f32 / left_scale) + (r as f32 / right_scale);
-        let weight = (l + r) as f32 / factor;
-        log::info!("val: {weight}\t{}\t{}", l, r);
+        let w = (l as f32 / left_scale) + (r as f32 / right_scale);
+        weight.store((((l + r) as f32 / factor) * 10.0 ) as i32, Ordering::Relaxed);
+        log::info!("val: {w}\t{}\t{}", l, r);
 
     }
 }
