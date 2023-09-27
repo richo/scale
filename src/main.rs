@@ -23,6 +23,7 @@ use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng};
 use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
+use core::iter::Sum;
 // use core::thread;
 use uuid::Uuid;
 
@@ -200,11 +201,15 @@ fn main() -> ! {
         let mut left_tare = left.tare();
         let mut right_tare = right.tare();
 
+        let mut values = [0.0, 0.0, 0.0, 0.0];
+
+        // We'll ignore spikes greater than this magnitude
+        let threshold = 100.0;
+
         loop {
             let mut notification = None;
 
             if should_tare.load(Ordering::Relaxed) {
-                println!("Actually taring");
                 left_tare = left.tare();
                 right_tare = right.tare();
                 should_tare.store(false, Ordering::Relaxed);
@@ -213,11 +218,19 @@ fn main() -> ! {
             let l = left.corrected_value(left_tare);
             let r = right.corrected_value(right_tare);
             // TODO(richo) figure out how to do this at 10hz
-            let w = (l as f32 / left_scale) + (r as f32 / right_scale);
+            // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
             let w = (l + r) as f32 / factor;
 
+            let av = values.iter().sum::<f32>() / 4.0;
+            if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
+                values.rotate_right(1);
+                values[0] = w;
+            }
+
+            let av: f32 = values.iter().sum::<f32>() / 4.0;
+
             // int repr of grams *10
-            let i = (w * 10.0) as i16;
+            let i = (av * 10.0) as i16;
 
             let mut cccd = [0u8; 1];
             if let Some(1) = srv.get_characteristic_value(
