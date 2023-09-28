@@ -27,9 +27,9 @@ use core::iter::Sum;
 // use core::thread;
 use uuid::Uuid;
 
-static weight: AtomicI32 = AtomicI32::new(0);
-static should_tare: AtomicBool = AtomicBool::new(false);
-
+static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
+static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
+static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 
 trait Scale {
     fn tare(&mut self) -> i32 {
@@ -112,10 +112,14 @@ fn main() -> ! {
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
     };
 
-    let right_scale = 273577.0 / 807.5 / 2.0;
-    let left_scale = 319663.0 / 807.5 / 2.0;
+    // let right_scale = 273577.0 / 807.5 / 2.0;
+    // let left_scale = 319663.0 / 807.5 / 2.0;
 
-    let factor = (273577.0 + 319663.0) / 807.5;
+    // Calibrated with nothing on the load cell
+    // let factor = (273577.0 + 319663.0) / 807.5;
+
+    // Calibrated with the drip tray in situ
+    let factor = (677108.25) / 921.7;
 
     // loop {
     //     let l = left.corrected_value(left_tare);
@@ -150,28 +154,43 @@ fn main() -> ! {
             17
         };
         let mut wf = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: Offset {}, data {:?}", offset, data);
-            if data == &[0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] || true {
-                println!("Triggering tare");
-                should_tare.store(true, Ordering::Relaxed);
+            println!("wf3");
+            println!("RECEIVED: Offset {}, data {:x?}", offset, data);
+            match data {
+                // CMD TARE
+                [0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] => {
+                    SHOULD_TARE.store(true, Ordering::Relaxed);
+                    println!("Triggering tare");
+                },
+
+                // TIMER ZERO
+                [0x03, 0x0b, 0x02, 0x00, 0x00, 0x00, 0x0a] => {
+                    SHOULD_TARE.store(true, Ordering::Relaxed);
+                    println!("Triggering tare because of timer");
+                }
+                // LED ON
+                [0x03, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x09] => {
+                    ENABLE_DRIVERS.store(true, Ordering::Relaxed);
+                    SHOULD_TARE.store(true, Ordering::Relaxed);
+                    println!("LED On, enabling hx711's and taring.");
+                }
+                // LED OFF
+                [0x03, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x09] => {
+                    DISABLE_DRIVERS.store(true, Ordering::Relaxed);
+                    println!("LED off, disabling hx711's.");
+                }
+                _ => {},
             }
         };
 
-        let mut wf2 = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: {} {:?}", offset, data);
+        let mut wf2 = |_offset: usize, _data: &[u8]| {
         };
 
-        let mut rf3 = |_offset: usize, data: &mut [u8]| {
-            data[..5].copy_from_slice(&b"Hola!"[..]);
-            5
+        let mut rf3 = |_offset: usize, _data: &mut [u8]| {
+            0
         };
 
-        let mut wf3 = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: Offset {}, data {:?}", offset, data);
-            if data == &[0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] || true {
-                println!("Triggering tare");
-                should_tare.store(true, Ordering::Relaxed);
-            }
+        let mut wf3 = |_offset: usize, _data: &[u8]| {
         };
 
         gatt!([service {
@@ -208,11 +227,27 @@ fn main() -> ! {
 
         loop {
             let mut notification = None;
+            if ENABLE_DRIVERS.load(Ordering::Relaxed) {
+                println!("enabling hx711's");
+                let _ = left.enable();
+                let _ = right.enable();
+                ENABLE_DRIVERS.store(false, Ordering::Relaxed);
+                // Give them a sec to wake up before we tare
+                delay.delay_ms(500u32);
+            }
 
-            if should_tare.load(Ordering::Relaxed) {
+            if DISABLE_DRIVERS.load(Ordering::Relaxed) {
+                println!("disabling hx711's");
+                let _ = left.disable();
+                let _ = right.disable();
+                DISABLE_DRIVERS.store(false, Ordering::Relaxed);
+            }
+
+            if SHOULD_TARE.load(Ordering::Relaxed) {
+                println!("Taring");
                 left_tare = left.tare();
                 right_tare = right.tare();
-                should_tare.store(false, Ordering::Relaxed);
+                SHOULD_TARE.store(false, Ordering::Relaxed);
             }
 
             let l = left.corrected_value(left_tare);
@@ -230,7 +265,16 @@ fn main() -> ! {
             let av: f32 = values.iter().sum::<f32>() / 4.0;
 
             // int repr of grams *10
-            let i = (av * 10.0) as i16;
+            let i = if av < 1.0 {
+                0
+            } else {
+                (av * 10.0) as i16
+            };
+
+            // let tare = SHOULD_TARE.load(Ordering::Relaxed);
+            // let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
+            // let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
+            // println!("t:{tare} e:{enable} d:{disable}: {av}");
 
             let mut cccd = [0u8; 1];
             if let Some(1) = srv.get_characteristic_value(
