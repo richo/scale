@@ -21,7 +21,7 @@ use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
 
-use hal::{timer::TimerGroup, Rng};
+use hal::{timer::TimerGroup, Rng, Rtc};
 use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
 use core::iter::Sum;
 // use core::thread;
@@ -30,6 +30,8 @@ use uuid::Uuid;
 static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
 static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
+
+const UPDATE_INTERVAL: u64 = 100; // 100ms between updates
 
 trait Scale {
     fn tare(&mut self) -> i32 {
@@ -72,6 +74,7 @@ fn main() -> ! {
     let mut system = peripherals.DPORT.split();
     let clocks = ClockControl::max(system.clock_control).freeze();
     let mut delay = Delay::new(&clocks);
+    let rtc = Rtc::new(peripherals.RTC_CNTL);
 
     // setup logger
     // To change the log_level change the env section in .cargo/config.toml
@@ -129,6 +132,8 @@ fn main() -> ! {
     //     log::info!("val: {w}\t{}\t{}", l, r);
 
     // }
+
+    let mut last = rtc.get_time_ms();
     loop {
         let connector = BleConnector::new(&init, &mut bluetooth);
         let hci = HciConnector::new(connector, esp_wifi::current_millis);
@@ -149,10 +154,6 @@ fn main() -> ! {
         println!("{:?}", ble.cmd_set_le_advertise_enable(true));
 
         println!("started advertising");
-        let mut rf = |_offset: usize, data: &mut [u8]| {
-            data[..20].copy_from_slice(&b"Hello Bare-Metal BLE"[..]);
-            17
-        };
         let mut wf = |offset: usize, data: &[u8]| {
             println!("wf3");
             println!("RECEIVED: Offset {}, data {:x?}", offset, data);
@@ -182,15 +183,8 @@ fn main() -> ! {
                 _ => {},
             }
         };
-
-        let mut wf2 = |_offset: usize, _data: &[u8]| {
-        };
-
         let mut rf3 = |_offset: usize, _data: &mut [u8]| {
             0
-        };
-
-        let mut wf3 = |_offset: usize, _data: &[u8]| {
         };
 
         gatt!([service {
@@ -198,19 +192,13 @@ fn main() -> ! {
             characteristics: [
                 characteristic {
                     uuid: "000036F5-0000-1000-8000-00805F9B34FB",
-                    read: rf,
                     write: wf,
-                },
-                characteristic {
-                    uuid: "957312e0-2354-11eb-9f10-fbc30a62cf38",
-                    write: wf2,
                 },
                 characteristic {
                     name: "weight",
                     uuid: "0000FFF4-0000-1000-8000-00805F9B34FB",
                     notify: true,
                     read: rf3,
-                    write: wf3,
                 },
             ],
         },]);
@@ -250,67 +238,72 @@ fn main() -> ! {
                 SHOULD_TARE.store(false, Ordering::Relaxed);
             }
 
-            let l = left.corrected_value(left_tare);
-            let r = right.corrected_value(right_tare);
-            // TODO(richo) figure out how to do this at 10hz
-            // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
-            let w = (l + r) as f32 / factor;
+            // Only update the weight and send a notification on 10hz
+            let now = rtc.get_time_ms();
+            if last + UPDATE_INTERVAL > now {
+                last = now;
+                let l = left.corrected_value(left_tare);
+                let r = right.corrected_value(right_tare);
+                // TODO(richo) figure out how to do this at 10hz
+                // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
+                let w = (l + r) as f32 / factor;
 
-            let av = values.iter().sum::<f32>() / 4.0;
-            if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
-                values.rotate_right(1);
-                values[0] = w;
-            }
-
-            let av: f32 = values.iter().sum::<f32>() / 4.0;
-
-            // int repr of grams *10
-            let i = if av < 1.0 {
-                0
-            } else {
-                (av * 10.0) as i16
-            };
-
-            // let tare = SHOULD_TARE.load(Ordering::Relaxed);
-            // let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
-            // let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
-            // println!("t:{tare} e:{enable} d:{disable}: {av}");
-
-            let mut cccd = [0u8; 1];
-            if let Some(1) = srv.get_characteristic_value(
-                weight_notify_enable_handle,
-                0,
-                &mut cccd,
-            ) {
-                let mut payload = [0x03, 0xCE, 0x00, 0x00, 0x00, 0x00, 0x00];
-                payload[2..4].copy_from_slice(&i.to_be_bytes());
-
-                // Calculate the xor thingy
-                let mut xor = 0x00;
-                for b in &payload[..] {
-                    xor ^= b;
+                let av = values.iter().sum::<f32>() / 4.0;
+                if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
+                    values.rotate_right(1);
+                    values[0] = w;
                 }
-                payload[6] = xor;
 
-                // if notifications enabled
-                if cccd[0] == 1 {
-                    // println!("{i} {:x?}", &payload[..]);
-                    notification = Some(NotificationData::new(
-                            weight_handle,
-                            &payload[..],
-                    ));
-                }
-            }
+                let av: f32 = values.iter().sum::<f32>() / 4.0;
 
+                // int repr of grams *10
+                let i = if av < 1.0 {
+                    0
+                } else {
+                    (av * 10.0) as i16
+                };
 
-            match srv.do_work_with_notification(notification) {
-                Ok(res) => {
-                    if let WorkResult::GotDisconnected = res {
-                        break;
+                // let tare = SHOULD_TARE.load(Ordering::Relaxed);
+                // let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
+                // let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
+                // println!("t:{tare} e:{enable} d:{disable}: {av}");
+
+                let mut cccd = [0u8; 1];
+                if let Some(1) = srv.get_characteristic_value(
+                    weight_notify_enable_handle,
+                    0,
+                    &mut cccd,
+                ) {
+                    let mut payload = [0x03, 0xCE, 0x00, 0x00, 0x00, 0x00, 0x00];
+                    payload[2..4].copy_from_slice(&i.to_be_bytes());
+
+                    // Calculate the xor thingy
+                    let mut xor = 0x00;
+                    for b in &payload[..] {
+                        xor ^= b;
+                    }
+                    payload[6] = xor;
+
+                    // if notifications enabled
+                    if cccd[0] == 1 {
+                        // println!("{i} {:x?}", &payload[..]);
+                        notification = Some(NotificationData::new(
+                                weight_handle,
+                                &payload[..],
+                        ));
                     }
                 }
-                Err(err) => {
-                    println!("{:?}", err);
+
+
+                match srv.do_work_with_notification(notification) {
+                    Ok(res) => {
+                        if let WorkResult::GotDisconnected = res {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        println!("{:?}", err);
+                    }
                 }
             }
         }
