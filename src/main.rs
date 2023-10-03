@@ -115,7 +115,7 @@ fn main() -> ! {
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
     };
 
-    let tare = io.pins.gpio19.into_pull_up_input();
+    let tare = io.pins.gpio21.into_pull_up_input();
 
     // let right_scale = 273577.0 / 807.5 / 2.0;
     // let left_scale = 319663.0 / 807.5 / 2.0;
@@ -157,30 +157,39 @@ fn main() -> ! {
 
         println!("started advertising");
         let mut wf = |offset: usize, data: &[u8]| {
-            println!("wf3");
             println!("RECEIVED: Offset {}, data {:x?}", offset, data);
             match data {
                 // CMD TARE
                 [0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] => {
                     SHOULD_TARE.store(true, Ordering::Relaxed);
-                    println!("Triggering tare");
+                    println!("TARE: Triggering tare");
                 },
 
                 // TIMER ZERO
                 [0x03, 0x0b, 0x02, 0x00, 0x00, 0x00, 0x0a] => {
                     SHOULD_TARE.store(true, Ordering::Relaxed);
-                    println!("Triggering tare because of timer");
+                    println!("TIMERZERO: Triggering tare because of timer");
                 }
+                // TIMER STOP
+                [0x03, 0x0b, 0x02, 0x00, 0x00, 0x00, 0x08] => {
+                    println!("TIMERSTOP: Got a timer stop");
+                }
+
+                //TIMERSTART
+                [0x03, 0x0B, 0x03, 0x00, 0x00, 0x00, 0x0B] => {
+                    println!("TIMERSTART:");
+                }
+
                 // LED ON
                 [0x03, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x09] => {
                     ENABLE_DRIVERS.store(true, Ordering::Relaxed);
                     SHOULD_TARE.store(true, Ordering::Relaxed);
-                    println!("LED On, enabling hx711's and taring.");
+                    println!("LEDON: enabling hx711's and taring.");
                 }
                 // LED OFF
                 [0x03, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x09] => {
                     DISABLE_DRIVERS.store(true, Ordering::Relaxed);
-                    println!("LED off, disabling hx711's.");
+                    println!("LEDOFF: disabling hx711's.");
                 }
                 _ => {},
             }
@@ -210,7 +219,7 @@ fn main() -> ! {
         let mut left_tare = left.tare();
         let mut right_tare = right.tare();
 
-        let mut values = [0.0, 0.0, 0.0, 0.0];
+        let mut values: [f32; 9] = [0.0; 9];
 
         let mut last_tare_press = rtc.get_time_ms();
 
@@ -225,7 +234,7 @@ fn main() -> ! {
                 let _ = right.enable();
                 ENABLE_DRIVERS.store(false, Ordering::Relaxed);
                 // Give them a sec to wake up before we tare
-                delay.delay_ms(500u32);
+                delay.delay_ms(100u32);
             }
 
             if DISABLE_DRIVERS.load(Ordering::Relaxed) {
@@ -239,15 +248,20 @@ fn main() -> ! {
                 println!("Taring");
                 left_tare = left.tare();
                 right_tare = right.tare();
+                // Fill the values buffer back up with zeros;
+                values = [0.0; 9];
                 SHOULD_TARE.store(false, Ordering::Relaxed);
             }
 
             let now = rtc.get_time_ms();
-            if tare.is_low().unwrap() && last_tare_press + TARE_DEBOUNCE > now {
+            if tare.is_low().unwrap() && last_tare_press + TARE_DEBOUNCE < now {
                 println!("Taring because of buttan");
                 left_tare = left.tare();
                 right_tare = right.tare();
                 last_tare_press = now;
+
+                // Set the values all back to zero
+                values = [0.0; 9];
             }
 
             let now = rtc.get_time_ms();
@@ -265,7 +279,12 @@ fn main() -> ! {
                     values[0] = w;
                 }
 
-                let av: f32 = values.iter().sum::<f32>() / 4.0;
+                let highest: f32 = values.iter().fold(0.0, |acc, x|  if *x > acc { *x } else { acc });
+                let lowest = values.iter().fold(f32::MAX, |acc, x|  if *x < acc { *x } else { acc });
+                // Remove the highest and lowest values for smoothing
+                let total: f32 = values.iter().sum::<f32>() - (highest + lowest);
+                let av = total / 7.0;
+
 
                 // int repr of grams *10
                 let i = if av < 1.0 {
@@ -279,7 +298,7 @@ fn main() -> ! {
                     let tare = SHOULD_TARE.load(Ordering::Relaxed);
                     let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
                     let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
-                    println!("t:{tare} e:{enable} d:{disable}: {av}");
+                    println!("t:{tare} e:{enable} d:{disable}: {av} -> {i}");
                 }
 
                 let mut cccd = [0u8; 1];
