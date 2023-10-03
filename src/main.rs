@@ -31,7 +31,8 @@ static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
 static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 
-const UPDATE_INTERVAL: u64 = 100; // 100ms between updates
+const UPDATE_INTERVAL: u64 = 200;
+const TARE_DEBOUNCE: u64 = 500;
 
 trait Scale {
     fn tare(&mut self) -> i32 {
@@ -82,7 +83,6 @@ fn main() -> ! {
     // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
     esp_println::logger::init_logger_from_env();
     log::info!("Logger is setup");
-    println!("Hello world!");
     let timer = TimerGroup::new(
         peripherals.TIMG1,
         &clocks,
@@ -114,6 +114,8 @@ fn main() -> ! {
         let pd_sck = io.pins.gpio5.into_push_pull_output();
         hx711::Hx711::new(delay, dout, pd_sck).unwrap()
     };
+
+    let tare = io.pins.gpio19.into_pull_up_input();
 
     // let right_scale = 273577.0 / 807.5 / 2.0;
     // let left_scale = 319663.0 / 807.5 / 2.0;
@@ -210,6 +212,8 @@ fn main() -> ! {
 
         let mut values = [0.0, 0.0, 0.0, 0.0];
 
+        let mut last_tare_press = rtc.get_time_ms();
+
         // We'll ignore spikes greater than this magnitude
         let threshold = 100.0;
 
@@ -238,9 +242,16 @@ fn main() -> ! {
                 SHOULD_TARE.store(false, Ordering::Relaxed);
             }
 
-            // Only update the weight and send a notification on 10hz
             let now = rtc.get_time_ms();
-            if last + UPDATE_INTERVAL > now {
+            if tare.is_low().unwrap() && last_tare_press + TARE_DEBOUNCE > now {
+                println!("Taring because of buttan");
+                left_tare = left.tare();
+                right_tare = right.tare();
+                last_tare_press = now;
+            }
+
+            let now = rtc.get_time_ms();
+            if last + UPDATE_INTERVAL < now {
                 last = now;
                 let l = left.corrected_value(left_tare);
                 let r = right.corrected_value(right_tare);
@@ -263,10 +274,13 @@ fn main() -> ! {
                     (av * 10.0) as i16
                 };
 
-                // let tare = SHOULD_TARE.load(Ordering::Relaxed);
-                // let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
-                // let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
-                // println!("t:{tare} e:{enable} d:{disable}: {av}");
+                #[cfg(feature = "log_weights")]
+                {
+                    let tare = SHOULD_TARE.load(Ordering::Relaxed);
+                    let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
+                    let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
+                    println!("t:{tare} e:{enable} d:{disable}: {av}");
+                }
 
                 let mut cccd = [0u8; 1];
                 if let Some(1) = srv.get_characteristic_value(

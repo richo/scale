@@ -30,3 +30,6 @@ lto = "off"
 [profile.release]
 lto = "off"
 
+
+[features]
+log_weights = []
