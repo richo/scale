@@ -29,8 +29,6 @@ use uuid::Uuid;
 
 use core::mem::MaybeUninit;
 
-use heapless::pool::Box;
-
 static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
 static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
@@ -41,8 +39,11 @@ const TARE_DEBOUNCE: u64 = 500;
 static mut LEFT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
 static mut RIGHT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
 
-trait Scale {
-    fn tare(&mut self) -> i32 {
+// Calibrated with the drip tray in situ
+const FACTOR: f32 = (677108.25) / 921.7;
+
+trait ScaleExt {
+    fn tare_value(&mut self) -> i32 {
         const N: i32 = 8;
         let mut val = 0;
         for _ in 0..N {
@@ -53,12 +54,11 @@ trait Scale {
 
     fn value(&mut self) -> i32;
 
-    fn corrected_value(&mut self, tare: i32) -> i32 {
-        self.value() - tare
-    }
+    fn enable(&mut self);
+    fn disable(&mut self);
 }
 
-impl<D, IN, OUT> Scale for hx711::Hx711<D, IN, OUT>
+impl<D, IN, OUT> ScaleExt for hx711::Hx711<D, IN, OUT>
 where
     D: DelayUs<u32>,
     IN: InputPin,
@@ -74,12 +74,43 @@ where
         }
         val
     }
+
+    fn enable(&mut self) {
+        let _ = hx711::Hx711::enable(self);
+    }
+
+    fn disable(&mut self) {
+        let _ = hx711::Hx711::disable(self);
+    }
 }
 
-fn tare_scales(left: &mut dyn Scale, right: &mut dyn Scale) {
-    unsafe {
-        LEFT_TARE.write(left.tare());
-        RIGHT_TARE.write(right.tare());
+struct Scale<'a> {
+    sensor: &'a mut dyn ScaleExt,
+    offset: i32,
+}
+
+impl<'a> Scale<'a> {
+    fn new(sensor: &'a mut dyn ScaleExt) -> Self {
+        let offset = sensor.tare_value();
+        Self {
+            sensor, offset
+        }
+    }
+
+    fn tare(&mut self) {
+        self.offset = self.sensor.tare_value()
+    }
+
+    fn corrected_value(&mut self) -> i32 {
+        self.sensor.value() - self.offset
+    }
+
+    fn disable(&mut self) {
+        self.sensor.disable();
+    }
+
+    fn enable(&mut self) {
+        self.sensor.enable();
     }
 }
 
@@ -117,17 +148,15 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let mut left = {
-        let dout = io.pins.gpio16.into_floating_input();
-        let pd_sck = io.pins.gpio4.into_push_pull_output();
-        hx711::Hx711::new(delay, dout, pd_sck).unwrap()
-    };
+    let dout = io.pins.gpio16.into_floating_input();
+    let pd_sck = io.pins.gpio4.into_push_pull_output();
+    let mut hx = hx711::Hx711::new(delay, dout, pd_sck).unwrap();
+    let mut left = Scale::new(&mut hx);
 
-    let mut right = {
-        let dout = io.pins.gpio18.into_floating_input();
-        let pd_sck = io.pins.gpio5.into_push_pull_output();
-        hx711::Hx711::new(delay, dout, pd_sck).unwrap()
-    };
+    let dout = io.pins.gpio18.into_floating_input();
+    let pd_sck = io.pins.gpio5.into_push_pull_output();
+    let mut hx = hx711::Hx711::new(delay, dout, pd_sck).unwrap();
+    let mut right = Scale::new(&mut hx);
 
     let tare = io.pins.gpio21.into_pull_up_input();
 
@@ -137,8 +166,6 @@ fn main() -> ! {
     // Calibrated with nothing on the load cell
     // let factor = (273577.0 + 319663.0) / 807.5;
 
-    // Calibrated with the drip tray in situ
-    let factor = (677108.25) / 921.7;
 
     // loop {
     //     let l = left.corrected_value(left_tare);
@@ -258,7 +285,8 @@ fn main() -> ! {
 
             if SHOULD_TARE.load(Ordering::Relaxed) {
                 println!("Taring");
-                tare_scales(&mut left, &mut right);
+                left.tare();
+                right.tare();
                 // Fill the values buffer back up with zeros;
                 values = [0.0; 9];
                 SHOULD_TARE.store(false, Ordering::Relaxed);
@@ -267,7 +295,8 @@ fn main() -> ! {
             let now = rtc.get_time_ms();
             if tare.is_low().unwrap() && last_tare_press + TARE_DEBOUNCE < now {
                 println!("Taring because of buttan");
-                tare_scales(&mut left, &mut right);
+                left.tare();
+                right.tare();
                 last_tare_press = now;
 
                 // Set the values all back to zero
@@ -277,11 +306,11 @@ fn main() -> ! {
             let now = rtc.get_time_ms();
             if last + UPDATE_INTERVAL < now {
                 last = now;
-                let l = left.corrected_value(unsafe { LEFT_TARE.assume_init() });
-                let r = right.corrected_value(unsafe { RIGHT_TARE.assume_init() });
+                let l = left.corrected_value();
+                let r = right.corrected_value();
                 // TODO(richo) figure out how to do this at 10hz
                 // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
-                let w = (l + r) as f32 / factor;
+                let w = (l + r) as f32 / FACTOR;
 
                 let av = values.iter().sum::<f32>() / 4.0;
                 if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
