@@ -27,12 +27,19 @@ use core::iter::Sum;
 // use core::thread;
 use uuid::Uuid;
 
+use core::mem::MaybeUninit;
+
+use heapless::pool::Box;
+
 static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
 static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 
 const UPDATE_INTERVAL: u64 = 200;
 const TARE_DEBOUNCE: u64 = 500;
+
+static mut LEFT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
+static mut RIGHT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
 
 trait Scale {
     fn tare(&mut self) -> i32 {
@@ -66,6 +73,13 @@ where
             val = block!(self.retrieve()).unwrap();
         }
         val
+    }
+}
+
+fn tare_scales(left: &mut dyn Scale, right: &mut dyn Scale) {
+    unsafe {
+        LEFT_TARE.write(left.tare());
+        RIGHT_TARE.write(right.tare());
     }
 }
 
@@ -216,8 +230,6 @@ fn main() -> ! {
 
         let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes);
 
-        let mut left_tare = left.tare();
-        let mut right_tare = right.tare();
 
         let mut values: [f32; 9] = [0.0; 9];
 
@@ -246,8 +258,7 @@ fn main() -> ! {
 
             if SHOULD_TARE.load(Ordering::Relaxed) {
                 println!("Taring");
-                left_tare = left.tare();
-                right_tare = right.tare();
+                tare_scales(&mut left, &mut right);
                 // Fill the values buffer back up with zeros;
                 values = [0.0; 9];
                 SHOULD_TARE.store(false, Ordering::Relaxed);
@@ -256,8 +267,7 @@ fn main() -> ! {
             let now = rtc.get_time_ms();
             if tare.is_low().unwrap() && last_tare_press + TARE_DEBOUNCE < now {
                 println!("Taring because of buttan");
-                left_tare = left.tare();
-                right_tare = right.tare();
+                tare_scales(&mut left, &mut right);
                 last_tare_press = now;
 
                 // Set the values all back to zero
@@ -267,8 +277,8 @@ fn main() -> ! {
             let now = rtc.get_time_ms();
             if last + UPDATE_INTERVAL < now {
                 last = now;
-                let l = left.corrected_value(left_tare);
-                let r = right.corrected_value(right_tare);
+                let l = left.corrected_value(unsafe { LEFT_TARE.assume_init() });
+                let r = right.corrected_value(unsafe { RIGHT_TARE.assume_init() });
                 // TODO(richo) figure out how to do this at 10hz
                 // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
                 let w = (l + r) as f32 / factor;
