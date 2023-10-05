@@ -14,20 +14,16 @@ use bleps::{
 use bleps_macros::gatt;
 
 use hx711;
-use nb::block;
 
-use embedded_hal::blocking::delay::DelayUs;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal::digital::v2::{InputPin};
 
 use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
 
 use hal::{timer::TimerGroup, Rng, Rtc};
-use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
-use core::iter::Sum;
-// use core::thread;
-use uuid::Uuid;
+use core::sync::atomic::{AtomicBool, Ordering};
 
-use core::mem::MaybeUninit;
+
+use scale::{Scale, Buffer};
 
 static SHOULD_TARE: AtomicBool = AtomicBool::new(false);
 static DISABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
@@ -36,83 +32,8 @@ static ENABLE_DRIVERS: AtomicBool = AtomicBool::new(false);
 const UPDATE_INTERVAL: u64 = 200;
 const TARE_DEBOUNCE: u64 = 500;
 
-static mut LEFT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
-static mut RIGHT_TARE: MaybeUninit<i32> = MaybeUninit::uninit();
-
 // Calibrated with the drip tray in situ
 const FACTOR: f32 = (677108.25) / 921.7;
-
-trait ScaleExt {
-    fn tare_value(&mut self) -> i32 {
-        const N: i32 = 8;
-        let mut val = 0;
-        for _ in 0..N {
-            val += self.value();
-        }
-        val / N
-    }
-
-    fn value(&mut self) -> i32;
-
-    fn enable(&mut self);
-    fn disable(&mut self);
-}
-
-impl<D, IN, OUT> ScaleExt for hx711::Hx711<D, IN, OUT>
-where
-    D: DelayUs<u32>,
-    IN: InputPin,
-    IN::Error: core::fmt::Debug,
-    OUT: OutputPin,
-    OUT::Error: core::fmt::Debug,
-{
-
-    fn value(&mut self) -> i32 {
-        let mut val = -1;
-        while val == -1 {
-            val = block!(self.retrieve()).unwrap();
-        }
-        val
-    }
-
-    fn enable(&mut self) {
-        let _ = hx711::Hx711::enable(self);
-    }
-
-    fn disable(&mut self) {
-        let _ = hx711::Hx711::disable(self);
-    }
-}
-
-struct Scale<'a> {
-    sensor: &'a mut dyn ScaleExt,
-    offset: i32,
-}
-
-impl<'a> Scale<'a> {
-    fn new(sensor: &'a mut dyn ScaleExt) -> Self {
-        let offset = sensor.tare_value();
-        Self {
-            sensor, offset
-        }
-    }
-
-    fn tare(&mut self) {
-        self.offset = self.sensor.tare_value()
-    }
-
-    fn corrected_value(&mut self) -> i32 {
-        self.sensor.value() - self.offset
-    }
-
-    fn disable(&mut self) {
-        self.sensor.disable();
-    }
-
-    fn enable(&mut self) {
-        self.sensor.enable();
-    }
-}
 
 #[entry]
 fn main() -> ! {
@@ -257,8 +178,7 @@ fn main() -> ! {
 
         let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes);
 
-
-        let mut values: [f32; 9] = [0.0; 9];
+        let mut values: Buffer<9> = Buffer::new();
 
         let mut last_tare_press = rtc.get_time_ms();
 
@@ -299,7 +219,7 @@ fn main() -> ! {
                 left.tare();
                 right.tare();
                 // Fill the values buffer back up with zeros;
-                values = [0.0; 9];
+                values.zero();
                 SHOULD_TARE.store(false, Ordering::Relaxed);
             }
 
@@ -310,8 +230,7 @@ fn main() -> ! {
                 right.tare();
                 last_tare_press = now;
 
-                // Set the values all back to zero
-                values = [0.0; 9];
+                values.zero()
             }
 
             let now = rtc.get_time_ms();
@@ -323,17 +242,12 @@ fn main() -> ! {
                 // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
                 let w = (l + r) as f32 / FACTOR;
 
-                let av = values.iter().sum::<f32>() / 4.0;
+                let av = values.average();
                 if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
-                    values.rotate_right(1);
-                    values[0] = w;
+                    values.push(w);
                 }
 
-                let highest: f32 = values.iter().fold(0.0, |acc, x|  if *x > acc { *x } else { acc });
-                let lowest = values.iter().fold(f32::MAX, |acc, x|  if *x < acc { *x } else { acc });
-                // Remove the highest and lowest values for smoothing
-                let total: f32 = values.iter().sum::<f32>() - (highest + lowest);
-                let av = total / 7.0;
+                let av = values.corrected_average();
 
 
                 // int repr of grams *10
