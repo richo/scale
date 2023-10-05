@@ -266,6 +266,17 @@ fn main() -> ! {
         let threshold = 100.0;
 
         loop {
+            match srv.do_work() {
+                Ok(res) => {
+                    if let WorkResult::GotDisconnected = res {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    println!("{:?}", err);
+                }
+            }
+
             let mut notification = None;
             if ENABLE_DRIVERS.load(Ordering::Relaxed) {
                 println!("enabling hx711's");
