@@ -33,7 +33,7 @@ const UPDATE_INTERVAL: u64 = 200;
 const TARE_DEBOUNCE: u64 = 500;
 
 // Calibrated with the drip tray in situ
-const FACTOR: f32 = (677108.25) / 921.7;
+const FACTOR: f32 = (71250.0) / 96.0;
 
 #[entry]
 fn main() -> ! {
@@ -178,12 +178,12 @@ fn main() -> ! {
 
         let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes);
 
-        let mut values: Buffer<9> = Buffer::new();
+        let mut values: Buffer<3> = Buffer::new();
 
         let mut last_tare_press = rtc.get_time_ms();
 
         // We'll ignore spikes greater than this magnitude
-        let threshold = 100.0;
+        let threshold = 500.0;
 
         loop {
             match srv.do_work() {
@@ -262,7 +262,7 @@ fn main() -> ! {
                     let tare = SHOULD_TARE.load(Ordering::Relaxed);
                     let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
                     let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
-                    println!("t:{tare} e:{enable} d:{disable}: {av} -> {i}");
+                    println!("t:{tare} e:{enable} d:{disable}: {l} + {r} = {av} -> {i}");
                 }
 
                 let mut cccd = [0u8; 1];
