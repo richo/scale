@@ -33,7 +33,7 @@ const UPDATE_INTERVAL: u64 = 200;
 const TARE_DEBOUNCE: u64 = 500;
 
 // Calibrated with the drip tray in situ
-const FACTOR: f32 = (63941.75) / 96.0;
+const FACTOR: f32 = (621670.25) / 99.9;
 
 #[entry]
 fn main() -> ! {

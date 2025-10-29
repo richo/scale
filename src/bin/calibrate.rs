@@ -68,7 +68,7 @@ fn main() -> ! {
         let r = right.corrected_value();
 
         values.push((l + r) as f32);
-        println!("{}", values.average());
+        println!("{l} + {r} => {}", values.average());
         last = rtc.get_time_ms();
     }
 }
