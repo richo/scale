@@ -1,6 +1,6 @@
 use nb::block;
-use embedded_hal::blocking::delay::DelayUs;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::{InputPin, OutputPin};
 
 pub trait ScaleExt {
     fn tare_value(&mut self) -> i32 {
@@ -20,7 +20,7 @@ pub trait ScaleExt {
 
 impl<D, IN, OUT> ScaleExt for hx711::Hx711<D, IN, OUT>
 where
-    D: DelayUs<u32>,
+    D: DelayNs,
     IN: InputPin,
     IN::Error: core::fmt::Debug,
     OUT: OutputPin,
