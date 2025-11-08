@@ -46,24 +46,6 @@ const FACTOR: f32 = (621670.25) / 99.9;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-
-struct RtcContainer<'a> {
-    rtc: &'a Rtc<'a>,
-}
-
-impl<'a> RtcContainer<'a> {
-    fn new(rtc: &'a Rtc<'a>) -> Self {
-        Self {
-            rtc,
-        }
-    }
-
-    pub fn current_millis(&self) -> u64 {
-        self.rtc.current_time_us() * 1000
-    }
-}
-
-
 #[main]
 fn main() -> ! {
     let now = || time::Instant::now().duration_since_epoch().as_millis();
@@ -76,9 +58,8 @@ fn main() -> ! {
     esp_alloc::heap_allocator!(#[hal::ram(reclaimed)] size: 98768);
 
     let rtc = Rtc::new(peripherals.LPWR);
-    let rtc_container = RtcContainer::new(&rtc);
 
-    let trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
+    let _trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
     let mut trng = Trng::try_new().unwrap();
 
     // setup logger
