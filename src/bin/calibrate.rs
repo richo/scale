@@ -46,6 +46,13 @@ fn main() -> ! {
     let dout = Input::new(peripherals.GPIO16, floating_config);
     let pd_sck = Output::new(peripherals.GPIO4, Level::Low, output_config);
     let mut hx = hx711::Hx711::new(delay, dout, pd_sck).unwrap();
+
+    log::info!("Interrogating some stuff");
+    let enabled = hx.enable();
+    if let Ok(()) = enabled {
+        log::info!("EnalbeD");
+    }
+
     let mut left = Scale::new(&mut hx);
 
     let dout = Input::new(peripherals.GPIO18, floating_config);
@@ -54,6 +61,11 @@ fn main() -> ! {
     let mut right = Scale::new(&mut hx);
 
     let mut values: Buffer<4> = Buffer::new();
+    left.enable();
+    right.enable();
+
+    left.tare();
+    right.tare();
 
     let mut last = now();
     loop {

@@ -42,7 +42,9 @@ const UPDATE_INTERVAL: u64 = 200;
 const TARE_DEBOUNCE: u64 = 500;
 
 // Calibrated with the drip tray in situ
-const FACTOR: f32 = (621670.25) / 99.9;
+// This isn't currently true but should be again soon
+const LEFT_FACTOR: f32 = (901813.0) / 176.9;
+const RIGHT_FACTOR: f32 = (950360.0) / 176.9;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -59,8 +61,8 @@ fn main() -> ! {
 
     let rtc = Rtc::new(peripherals.LPWR);
 
-    let _trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
-    let mut trng = Trng::try_new().unwrap();
+    // let _trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
+    // let mut trng = Trng::try_new().unwrap();
 
     log::info!("Logger is setup");
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -85,6 +87,11 @@ fn main() -> ! {
 
     let pullup_config = InputConfig::default().with_pull(Pull::Up);
     let tare = Input::new(peripherals.GPIO21, pullup_config);
+
+            let _ = left.enable();
+            let _ = right.enable();
+            let _ = left.tare();
+            let _ = right.tare();
 
     // let right_scale = 273577.0 / 807.5 / 2.0;
     // let left_scale = 319663.0 / 807.5 / 2.0;
@@ -121,7 +128,7 @@ fn main() -> ! {
             ]).unwrap()
         )
     );
-    log::info!("{:?}", ble.cmd_set_le_advertise_enable(true));
+    log::info!("advertise_enable: {:?}", ble.cmd_set_le_advertise_enable(true));
 
     log::info!("started advertising");
     let mut wf = |offset: usize, data: &[u8]| {
@@ -181,8 +188,9 @@ fn main() -> ! {
             },
         ],
     },]);
+    let mut norng = bleps::no_rng::NoRng;
 
-    let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes, &mut trng);
+    let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes, &mut norng);
 
     let mut values: Buffer<3> = Buffer::new();
 
@@ -194,12 +202,13 @@ fn main() -> ! {
     loop {
         match srv.do_work() {
             Ok(res) => {
+                // log::info!("do_work: {:?}", res);
                 if let WorkResult::GotDisconnected = res {
                     log::info!("We're diconnected");
                 }
             }
             Err(err) => {
-                log::info!("{:?}", err);
+                log::info!("do_work: {:?}", err);
             }
         }
 
@@ -244,9 +253,7 @@ fn main() -> ! {
             last = now;
             let l = left.corrected_value();
             let r = right.corrected_value();
-            // TODO(richo) figure out how to do this at 10hz
-            // let w = (l as f32 / left_scale) + (r as f32 / right_scale);
-            let w = (l + r) as f32 / FACTOR;
+            let w = (l as f32 / LEFT_FACTOR) + (r as f32 / RIGHT_FACTOR);
 
             let av = values.average();
             if av == 0.0 || w < (1.0 + av) * (1.0 + av) * threshold {
@@ -300,13 +307,14 @@ fn main() -> ! {
 
             match srv.do_work_with_notification(notification) {
                 Ok(res) => {
+                    // log::info!("do_work_with_notification: {:?}", res);
                     if let WorkResult::GotDisconnected = res {
                         log::info!("Disconnected");
 
                     }
                 }
                 Err(err) => {
-                    log::info!("{:?}", err);
+                    log::info!("work_with_notification: {:?}", err);
                 }
             }
         }
