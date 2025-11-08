@@ -3,67 +3,62 @@
 
 use esp_backtrace as _;
 use esp_println::println;
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO};
+use hal::clock::CpuClock;
 use hx711;
+use hal::main;
 
 
-use esp_wifi::{initialize, EspWifiInitFor};
-
-use hal::{timer::TimerGroup, Rng, Rtc};
+use hal::rtc_cntl::Rtc;
+use hal::time;
+use hal::timer::timg::TimerGroup;
+use hal::delay::Delay;
+use embedded_hal::delay::DelayNs;
+use hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
 use scale::{Scale, Buffer};
 
 const UPDATE_INTERVAL: u64 = 200;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[entry]
+#[main]
 fn main() -> ! {
-    let peripherals = Peripherals::take();
-    let mut system = peripherals.DPORT.split();
-    let clocks = ClockControl::max(system.clock_control).freeze();
-    let mut delay = Delay::new(&clocks);
-    let rtc = Rtc::new(peripherals.RTC_CNTL);
-
-    // setup logger
-    // To change the log_level change the env section in .cargo/config.toml
-    // or remove it and set ESP_LOGLEVEL manually before running cargo run
-    // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
+    let now = || time::Instant::now().duration_since_epoch().as_millis();
     esp_println::logger::init_logger_from_env();
+    let config = hal::Config::default().with_cpu_clock(CpuClock::max());
+    let mut peripherals = hal::init(config);
+
+    let rtc = Rtc::new(peripherals.LPWR);
+    let output_config = OutputConfig::default();
+
     log::info!("Logger is setup");
-    let timer = TimerGroup::new(
-        peripherals.TIMG1,
-        &clocks,
-        &mut system.peripheral_clock_control,
-    )
-    .timer0;
-    let _init = initialize(
-        EspWifiInitFor::Ble,
-        timer,
-        Rng::new(peripherals.RNG),
-        system.radio_clock_control,
-        &clocks,
-    )
-    .unwrap();
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_rtos::start(timg0.timer0);
 
+    let mut io = Io::new(peripherals.IO_MUX);
+    let mut delay = Delay::new();
 
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let mut led = Output::new(peripherals.GPIO2, Level::Low, output_config);
+    led.set_high();
+    log::info!("LED on?");
 
-    let dout = io.pins.gpio16.into_floating_input();
-    let pd_sck = io.pins.gpio4.into_push_pull_output();
+    let floating_config = InputConfig::default();
+
+    let dout = Input::new(peripherals.GPIO16, floating_config);
+    let pd_sck = Output::new(peripherals.GPIO4, Level::Low, output_config);
     let mut hx = hx711::Hx711::new(delay, dout, pd_sck).unwrap();
     let mut left = Scale::new(&mut hx);
 
-    let dout = io.pins.gpio18.into_floating_input();
-    let pd_sck = io.pins.gpio5.into_push_pull_output();
+    let dout = Input::new(peripherals.GPIO18, floating_config);
+    let pd_sck = Output::new(peripherals.GPIO5, Level::Low, output_config);
     let mut hx = hx711::Hx711::new(delay, dout, pd_sck).unwrap();
     let mut right = Scale::new(&mut hx);
 
     let mut values: Buffer<4> = Buffer::new();
 
-    let mut last = rtc.get_time_ms();
+    let mut last = now();
     loop {
-        if last + UPDATE_INTERVAL < rtc.get_time_ms() {
-            delay.delay_ms(50u32);
+        if last + UPDATE_INTERVAL < now() {
+            delay.delay_ns(50u32);
         }
 
         let l = left.corrected_value();
@@ -71,6 +66,6 @@ fn main() -> ! {
 
         values.push((l + r) as f32);
         println!("{l} + {r} => {}", values.average());
-        last = rtc.get_time_ms();
+        last = now();
     }
 }

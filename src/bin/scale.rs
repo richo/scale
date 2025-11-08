@@ -11,7 +11,7 @@ use bleps::{
         create_advertising_data, AdStructure, BR_EDR_NOT_SUPPORTED, LE_GENERAL_DISCOVERABLE,
     },
     attribute_server::{AttributeServer, NotificationData, WorkResult},
-    gatt, Addr, Ble, HciConnector,
+    gatt, Ble, HciConnector,
 };
 
 use hx711;
@@ -21,8 +21,8 @@ use embedded_hal::delay::DelayNs;
 // use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
 use esp_radio::ble::controller::{BleConnector};
 
-use hal::gpio::{Event, Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
-use hal::time::{self, Duration};
+use hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
+use hal::time;
 
 use hal::rng::{Trng, TrngSource};
 
@@ -48,9 +48,9 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 #[main]
 fn main() -> ! {
-    let now = || time::Instant::now().duration_since_epoch().as_millis();
-
     esp_println::logger::init_logger_from_env();
+
+    let now = || time::Instant::now().duration_since_epoch().as_millis();
 
     let config = hal::Config::default().with_cpu_clock(CpuClock::max());
     let mut peripherals = hal::init(config);
@@ -62,11 +62,6 @@ fn main() -> ! {
     let _trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
     let mut trng = Trng::try_new().unwrap();
 
-    // setup logger
-    // To change the log_level change the env section in .cargo/config.toml
-    // or remove it and set ESP_LOGLEVEL manually before running cargo run
-    // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
-    esp_println::logger::init_logger_from_env();
     log::info!("Logger is setup");
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0);
@@ -114,9 +109,9 @@ fn main() -> ! {
 
     let mut ble = Ble::new(&hci);
 
-    println!("{:?}", ble.init());
-    println!("{:?}", ble.cmd_set_le_advertising_parameters());
-    println!(
+    log::info!("{:?}", ble.init());
+    log::info!("{:?}", ble.cmd_set_le_advertising_parameters());
+    log::info!(
         "{:?}",
         ble.cmd_set_le_advertising_data(
             create_advertising_data(&[
@@ -126,43 +121,43 @@ fn main() -> ! {
             ]).unwrap()
         )
     );
-    println!("{:?}", ble.cmd_set_le_advertise_enable(true));
+    log::info!("{:?}", ble.cmd_set_le_advertise_enable(true));
 
-    println!("started advertising");
+    log::info!("started advertising");
     let mut wf = |offset: usize, data: &[u8]| {
-        println!("RECEIVED: Offset {}, data {:x?}", offset, data);
+        log::info!("RECEIVED: Offset {}, data {:x?}", offset, data);
         match data {
             // CMD TARE
             [0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x0C] => {
                 SHOULD_TARE.store(true, Ordering::Relaxed);
-                println!("TARE: Triggering tare");
+                log::info!("TARE: Triggering tare");
             },
 
             // TIMER ZERO
             [0x03, 0x0b, 0x02, 0x00, 0x00, 0x00, 0x0a] => {
                 SHOULD_TARE.store(true, Ordering::Relaxed);
-                println!("TIMERZERO: Triggering tare because of timer");
+                log::info!("TIMERZERO: Triggering tare because of timer");
             }
             // TIMER STOP
             [0x03, 0x0b, 0x02, 0x00, 0x00, 0x00, 0x08] => {
-                println!("TIMERSTOP: Got a timer stop");
+                log::info!("TIMERSTOP: Got a timer stop");
             }
 
             //TIMERSTART
             [0x03, 0x0B, 0x03, 0x00, 0x00, 0x00, 0x0B] => {
-                println!("TIMERSTART:");
+                log::info!("TIMERSTART:");
             }
 
             // LED ON
             [0x03, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x09] => {
                 ENABLE_DRIVERS.store(true, Ordering::Relaxed);
                 SHOULD_TARE.store(true, Ordering::Relaxed);
-                println!("LEDON: enabling hx711's and taring.");
+                log::info!("LEDON: enabling hx711's and taring.");
             }
             // LED OFF
             [0x03, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x09] => {
                 DISABLE_DRIVERS.store(true, Ordering::Relaxed);
-                println!("LEDOFF: disabling hx711's.");
+                log::info!("LEDOFF: disabling hx711's.");
             }
             _ => {},
         }
@@ -200,17 +195,17 @@ fn main() -> ! {
         match srv.do_work() {
             Ok(res) => {
                 if let WorkResult::GotDisconnected = res {
-                    println!("We're diconnected");
+                    log::info!("We're diconnected");
                 }
             }
             Err(err) => {
-                println!("{:?}", err);
+                log::info!("{:?}", err);
             }
         }
 
         let mut notification = None;
         if ENABLE_DRIVERS.load(Ordering::Relaxed) {
-            println!("enabling hx711's");
+            log::info!("enabling hx711's");
             let _ = left.enable();
             let _ = right.enable();
             ENABLE_DRIVERS.store(false, Ordering::Relaxed);
@@ -219,14 +214,14 @@ fn main() -> ! {
         }
 
         if DISABLE_DRIVERS.load(Ordering::Relaxed) {
-            println!("disabling hx711's");
+            log::info!("disabling hx711's");
             let _ = left.disable();
             let _ = right.disable();
             DISABLE_DRIVERS.store(false, Ordering::Relaxed);
         }
 
         if SHOULD_TARE.load(Ordering::Relaxed) {
-            println!("Taring");
+            log::info!("Taring");
             left.tare();
             right.tare();
             // Fill the values buffer back up with zeros;
@@ -236,7 +231,7 @@ fn main() -> ! {
 
         let now = rtc.current_time_us() * 1000;
         if tare.is_low() && last_tare_press + TARE_DEBOUNCE < now {
-            println!("Taring because of buttan");
+            log::info!("Taring because of buttan");
             left.tare();
             right.tare();
             last_tare_press = now;
@@ -273,7 +268,7 @@ fn main() -> ! {
                 let tare = SHOULD_TARE.load(Ordering::Relaxed);
                 let enable = ENABLE_DRIVERS.load(Ordering::Relaxed);
                 let disable = DISABLE_DRIVERS.load(Ordering::Relaxed);
-                println!("t:{tare} e:{enable} d:{disable}: {l} + {r} = {av} -> {i}");
+                log::info!("t:{tare} e:{enable} d:{disable}: {l} + {r} = {av} -> {i}");
             }
 
             let mut cccd = [0u8; 1];
@@ -294,7 +289,7 @@ fn main() -> ! {
 
                 // if notifications enabled
                 if cccd[0] == 1 {
-                    // println!("{i} {:x?}", &payload[..]);
+                    // log::info!("{i} {:x?}", &payload[..]);
                     notification = Some(NotificationData::new(
                             weight_handle,
                             &payload[..],
@@ -306,12 +301,12 @@ fn main() -> ! {
             match srv.do_work_with_notification(notification) {
                 Ok(res) => {
                     if let WorkResult::GotDisconnected = res {
-                        println!("Disconnected");
+                        log::info!("Disconnected");
 
                     }
                 }
                 Err(err) => {
-                    println!("{:?}", err);
+                    log::info!("{:?}", err);
                 }
             }
         }
