@@ -14,6 +14,8 @@ use scale::{Scale, Buffer};
 
 const UPDATE_INTERVAL: u64 = 200;
 
+esp_bootloader_esp_idf::esp_app_desc!();
+
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();

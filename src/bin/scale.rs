@@ -35,6 +35,8 @@ const TARE_DEBOUNCE: u64 = 500;
 // Calibrated with the drip tray in situ
 const FACTOR: f32 = (621670.25) / 99.9;
 
+esp_bootloader_esp_idf::esp_app_desc!();
+
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();

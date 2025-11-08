@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bleps = { git = "https://github.com/bjoernQ/bleps", rev = "b82f1e7009bef7e32f0918be5b186188aa5e7109", package = "bleps" }
 bleps-macros = { git = "https://github.com/bjoernQ/bleps", rev = "b82f1e7009bef7e32f0918be5b186188aa5e7109", package = "bleps-macros" }
+esp-bootloader-esp-idf = { version = "0.4.0" }
 hal = { package = "esp32-hal", version = "0.15.0" }
 esp-backtrace = { version = "0.8.0", features = ["esp32", "panic-handler", "exception-handler", "print-uart"] }
 esp-println = { version = "0.6.0", features = ["esp32","log"] }
