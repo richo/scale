@@ -124,7 +124,7 @@ fn main() -> ! {
             create_advertising_data(&[
                 AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
                 AdStructure::ServiceUuids16(&[Uuid::Uuid16(0x1809)]),
-                AdStructure::CompleteLocalName("Decent Scale 2"),
+                AdStructure::CompleteLocalName("ButtsHaus Scale"),
             ]).unwrap()
         )
     );
