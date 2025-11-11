@@ -36,7 +36,7 @@ where
     }
 
     fn enable(&mut self) {
-        let _ = hx711::Hx711::set_mode(self, hx711::Mode::ChBGain64);
+        let _ = hx711::Hx711::set_mode(self, hx711::Mode::ChAGain64);
         let _ = hx711::Hx711::enable(self);
     }
 

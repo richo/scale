@@ -938,7 +938,8 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "hx711"
 version = "0.7.0"
-source = "git+https://github.com/TheOpenDevProject/hx711?rev=19dbd41#19dbd41cb17a2d5c8293f8f3bfd86d9015edf980"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60c8a5b176b4cba5ff9c01a721bc4758af53717062f251f55553fc73abe627a8"
 dependencies = [
  "embedded-hal 1.0.0",
  "nb 1.1.0",
